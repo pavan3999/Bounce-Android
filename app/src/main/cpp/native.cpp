@@ -333,27 +333,69 @@ struct Player {
         return !(t==0 || t==8 || t==9 || t==10 || t==11 || t==12);
     }
 
+    // Direct translation of f.b(int,int,int,int): tests the original player
+    // collision mask against one 12x12 map cell. The J2ME engine always uses
+    // 12-pixel map cells here, including the 16-pixel player variant.
+    bool collidesCell(const Level& lv, int px, int py, int row, int col) const {
+        if (row < 0 || row >= lv.height || col < 0 || col >= lv.width)
+            return false;
+        if (state == 2)
+            return false;
+
+        const int cellX = col * 12;
+        const int cellY = row * 12;
+        const int ox = px - half - cellX;
+        const int oy = py - half - cellY;
+
+        int sx, sy, ex, ey;
+        if (ox >= 0) { sx = ox; ex = 12; }
+        else { sx = 0; ex = size + ox; }
+        if (oy >= 0) { sy = oy; ey = 12; }
+        else { sy = 0; ey = size + oy; }
+
+        sx = std::max(0, sx); sy = std::max(0, sy);
+        ex = std::min(12, ex); ey = std::min(12, ey);
+        if (sx >= ex || sy >= ey)
+            return false;
+
+        const auto& mask = (size == 16) ? mask16 : mask12;
+        for (int yy = sy; yy < ey; ++yy) {
+            for (int xx = sx; xx < ex; ++xx) {
+                const int mx = xx - ox;
+                const int my = yy - oy;
+                if (my >= 0 && my < (size == 16 ? 16 : 12) &&
+                    mx >= 0 && mx < 12 && mask[my][mx])
+                    return true;
+            }
+        }
+        return false;
+    }
+
+    // The original f.b(...) first tests the player's mask against a single
+    // map cell. This wrapper checks the neighboring cells touched by the
+    // player's bounding box, retaining the original 12-pixel grid.
     bool collidesAt(const Level& lv, int px, int py) const {
-        // Exact geometry used by f.b(int,int): the level collision grid is
-        // addressed in 12-pixel cells even for the 16-pixel player variant.
-        const int p=half;
-        int x0=(px-p)/12, y0=(py-p)/12;
-        int x1=((px-1)+p)/12 + 1;
-        int y1=((py-1)+p)/12 + 1;
-        const auto& mask = (size==16) ? mask16 : mask12;
-        x0=std::max(0,x0); y0=std::max(0,y0);
-        x1=std::min<int>(lv.width,x1); y1=std::min<int>(lv.height,y1);
-        for(int ty=y0; ty<y1; ++ty) {
-            for(int tx=x0; tx<x1; ++tx) {
-                if(!solid(lv.tiles[ty*lv.width+tx])) continue;
-                const int baseX=tx*12, baseY=ty*12;
-                int ox=px-p-baseX, oy=py-p-baseY;
-                int sx=std::max(0,ox), sy=std::max(0,oy);
-                int ex=std::min(12,ox+12), ey=std::min(12,oy+12);
-                if(ex<=sx || ey<=sy) continue;
-                for(int yy=sy; yy<ey; ++yy)
-                    for(int xx=sx; xx<ex; ++xx)
-                        if(mask[yy][xx]) return true;
+        const int left   = px - half;
+        const int top    = py - half;
+        const int right  = px + half - 1;
+        const int bottom = py + half - 1;
+        const int c0 = std::max(0, left / 12);
+        const int r0 = std::max(0, top / 12);
+        const int c1 = std::min<int>(lv.width - 1, right / 12);
+        const int r1 = std::min<int>(lv.height - 1, bottom / 12);
+
+        for (int row = r0; row <= r1; ++row) {
+            for (int col = c0; col <= c1; ++col) {
+                const uint8_t raw = lv.tiles[row * lv.width + col];
+                const int tile = raw & 0x3F;
+                // The original generic mask test is only reached for terrain
+                // types which participate in collision. Empty/background and
+                // the dynamic/special non-solid types are handled separately.
+                if (tile == 0 || tile == 8 || tile == 9 ||
+                    tile == 10 || tile == 11 || tile == 12)
+                    continue;
+                if (collidesCell(lv, px, py, row, col))
+                    return true;
             }
         }
         return false;
