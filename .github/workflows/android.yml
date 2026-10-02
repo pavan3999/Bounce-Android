@@ -23,12 +23,62 @@ jobs:
           distribution: temurin
           java-version: '21'
 
+      - name: Set up Android SDK
+        shell: bash
+        run: |
+          set -e
+
+          ANDROID_HOME="/usr/local/lib/android/sdk"
+
+          echo "ANDROID_HOME=$ANDROID_HOME" >> "$GITHUB_ENV"
+          echo "ANDROID_SDK_ROOT=$ANDROID_HOME" >> "$GITHUB_ENV"
+
+          echo "Searching for sdkmanager..."
+
+          SDKMANAGER=$(find "$ANDROID_HOME/cmdline-tools" \
+            -type f \
+            -name sdkmanager \
+            -print -quit 2>/dev/null || true)
+
+          if [ -z "$SDKMANAGER" ]; then
+            echo "::error::sdkmanager was not found"
+            echo "Android SDK contents:"
+            find "$ANDROID_HOME" -maxdepth 4 -type f -name sdkmanager -print || true
+            exit 1
+          fi
+
+          SDKMANAGER_DIR="$(dirname "$SDKMANAGER")"
+
+          echo "Found sdkmanager:"
+          echo "$SDKMANAGER"
+
+          echo "$SDKMANAGER_DIR" >> "$GITHUB_PATH"
+          echo "$ANDROID_HOME/platform-tools" >> "$GITHUB_PATH"
+
+      - name: Verify Android SDK
+        shell: bash
+        run: |
+          set -e
+
+          echo "ANDROID_HOME=$ANDROID_HOME"
+          echo "ANDROID_SDK_ROOT=$ANDROID_SDK_ROOT"
+
+          echo "sdkmanager:"
+          which sdkmanager
+
+          echo "sdkmanager version:"
+          sdkmanager --version
+
       - name: Accept Android SDK licenses
+        shell: bash
         run: |
           yes | sdkmanager --licenses > /dev/null || true
 
       - name: Install Android SDK components
+        shell: bash
         run: |
+          set -e
+
           sdkmanager \
             "platform-tools" \
             "platforms;android-37" \
@@ -36,12 +86,20 @@ jobs:
             "cmake;3.22.1" \
             "ndk;27.2.12479018"
 
+      - name: Verify Android SDK components
+        shell: bash
+        run: |
+          set -e
+
+          sdkmanager --list_installed
+
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: '8.13'
 
       - name: Build debug APK
+        shell: bash
         run: |
           gradle assembleDebug --stacktrace
 
@@ -50,3 +108,4 @@ jobs:
         with:
           name: Bounce-debug
           path: app/build/outputs/apk/debug/*.apk
+          if-no-files-found: error
