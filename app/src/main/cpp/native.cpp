@@ -146,7 +146,7 @@ class Renderer {
     Image object24{};
     Level level{};
     std::vector<ObjectState> objects;
-    std::vector<uint32_t> frame(128 * 128);
+    std::vector<uint32_t> frame = std::vector<uint32_t>(128 * 128);
     int cameraX=0, cameraY=0;
     int playerWorldX=64, playerWorldY=48;
 public:
