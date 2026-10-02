@@ -291,7 +291,8 @@ public:
         const int cols=OFFSCREEN_W/ts+1;
         const int rows=OFFSCREEN_H/ts+1;
         // Crash-isolation: map/tile rendering disabled.
-        // Crash-isolation: moving-object update/render disabled.
+        updateObjects();
+        // Object bitmap rendering disabled for isolation.
         // HUD: reserve the original 32px strip. Score/lives are supplied by the
         // game controller in the next pass; keep the strip opaque rather than fake text.
         for(int y=PLAYFIELD_H;y<LOGICAL_H;++y)
