@@ -290,13 +290,16 @@ public:
         const int startY=cameraY/ts;
         const int cols=OFFSCREEN_W/ts+1;
         const int rows=OFFSCREEN_H/ts+1;
-        // Crash-isolation: map/tile rendering disabled.
-        updateObjects();
-        for(const auto& o:objects){
-            const int ox=o.x-cameraX, oy=o.y-cameraY;
-            if(ox>=-24 && ox<LOGICAL_W && oy>=-24 && oy<PLAYFIELD_H)
-                blit(object24,ox,oy);
-        }
+        for(int ty=0;ty<rows && startY+ty<level.height;++ty)
+            for(int tx=0;tx<cols && startX+tx<level.width;++tx) {
+                const uint8_t raw=level.tiles[(startY+ty)*level.width+(startX+tx)];
+                const bool variant=(raw&0x40)!=0;
+                const int id=raw&0x3F;
+                const int sx=tx*ts-(cameraX%ts);
+                const int sy=ty*ts-(cameraY%ts);
+                drawTile(id,variant,sx,sy);
+            }
+        // Object rendering disabled for tile-only crash isolation.
         // HUD: reserve the original 32px strip. Score/lives are supplied by the
         // game controller in the next pass; keep the strip opaque rather than fake text.
         for(int y=PLAYFIELD_H;y<LOGICAL_H;++y)
