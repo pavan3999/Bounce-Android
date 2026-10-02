@@ -290,17 +290,7 @@ public:
         const int startY=cameraY/ts;
         const int cols=OFFSCREEN_W/ts+1;
         const int rows=OFFSCREEN_H/ts+1;
-        for(int ty=0;ty<rows && startY+ty<level.height;++ty)
-            for(int tx=0;tx<cols && startX+tx<level.width;++tx) {
-                const uint8_t raw=level.tiles[(startY+ty)*level.width+(startX+tx)];
-                const bool variant=(raw&0x40)!=0;
-                const int id=raw&0x3F;
-                const int sx=tx*ts-(cameraX%ts);
-                const int sy=ty*ts-(cameraY%ts);
-                // The level map is always a 12px grid. The header's format byte
-                // only changes the player collision/sprite size.
-                drawTile(id,variant,sx,sy);
-            }
+        // Crash-isolation: map/tile rendering disabled.
         // Crash-isolation: moving-object update/render disabled.
         // HUD: reserve the original 32px strip. Score/lives are supplied by the
         // game controller in the next pass; keep the strip opaque rather than fake text.
