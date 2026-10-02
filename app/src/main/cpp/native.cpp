@@ -29,9 +29,12 @@ struct Level {
     uint8_t s=0,S=0,format=0,W=0,V=0,ao=0,width=0,height=0;
     std::vector<uint8_t> tiles;
     std::vector<LevelRecord> records;
-    int tileSize() const { return format ? 16 : 12; }
-    int widthPx() const { return width * tileSize(); }
-    int heightPx() const { return height * tileSize(); }
+    // The third level-header byte selects the player size, NOT the map grid.
+    // The original b.class/f.class always address level cells on a 12px grid.
+    static constexpr int tileSize() { return 12; }
+    int playerSize() const { return format ? 16 : 12; }
+    int widthPx() const { return width * 12; }
+    int heightPx() const { return height * 12; }
 };
 
 struct ObjectState {
@@ -168,7 +171,7 @@ public:
     void setLevel(const uint8_t* data,size_t n){
         level=parseLevel(data,n); cameraX=0; cameraY=0; objects.clear();
         objects.reserve(level.records.size());
-        const int ts=level.tileSize();
+        constexpr int ts=12;
         for(const auto& r: level.records){
             ObjectState o; o.base=r;
             o.x=static_cast<int>(r.px)*ts; o.y=static_cast<int>(r.py)*ts;
@@ -246,13 +249,24 @@ public:
     void render() {
         clear(BLUE);
         if(level.width==0||level.height==0) return;
-        const int ts=level.tileSize();
+        constexpr int ts=12;
         const int worldW=level.width*ts;
         const int worldH=level.height*ts;
         const int viewW=OFFSCREEN_W;
         const int viewH=OFFSCREEN_H;
-        cameraX=std::clamp(playerWorldX-64,0,std::max(0,worldW-viewW));
-        cameraY=std::clamp(playerWorldY-48,0,std::max(0,worldH-viewH));
+        // Exact camera behavior from e.e(): horizontal camera is quantized to
+        // the 12px map grid; vertical camera is quantized in 7px increments.
+        int rawX=playerWorldX-64;
+        rawX=std::clamp(rawX,0,std::max(0,worldW-viewW));
+        cameraX=(rawX/12)*12;
+
+        // Exact vertical camera loop from e.e(): start at k=0 and move the
+        // camera in 7px increments until the player's 96px window contains it.
+        int camY=0;
+        while (playerWorldY-6 < camY) camY-=7;
+        while (playerWorldY+6 > camY+96) camY+=7;
+        cameraY=camY;
+
         const int startX=cameraX/ts;
         const int startY=cameraY/ts;
         const int cols=OFFSCREEN_W/ts+1;
@@ -264,8 +278,8 @@ public:
                 const int id=raw&0x3F;
                 const int sx=tx*ts-(cameraX%ts);
                 const int sy=ty*ts-(cameraY%ts);
-                // Original Q sprites are 12px; 16px-format levels use the original
-                // map coordinate spacing while retaining the source sprite dimensions.
+                // The level map is always a 12px grid. The header's format byte
+                // only changes the player collision/sprite size.
                 drawTile(id,variant,sx,sy);
             }
         updateObjects();
@@ -402,7 +416,8 @@ struct Player {
     }
 
     void update(const Level& lv) {
-        size=lv.tileSize(); half=size/2;
+        const int ts=12;
+        size=lv.playerSize(); half=size/2;
         if(state==2) return;
 
         // Match f.b(): choose vertical acceleration from the tile underneath.
