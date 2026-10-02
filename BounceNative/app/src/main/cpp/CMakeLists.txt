@@ -1,0 +1,6 @@
+cmake_minimum_required(VERSION 3.22.1)
+project(bounce)
+set(CMAKE_CXX_STANDARD 20)
+add_library(bounce SHARED native.cpp)
+find_library(log-lib log)
+target_link_libraries(bounce ${log-lib})

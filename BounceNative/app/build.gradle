@@ -1,0 +1,6 @@
+plugins { id 'com.android.application' }
+
+android { namespace 'com.pavan3999.bounce'; compileSdk 37
+    defaultConfig { applicationId 'com.pavan3999.bounce'; minSdk 23; targetSdk 37; versionCode 1; versionName '0.1-native' }
+    externalNativeBuild { cmake { path file('src/main/cpp/CMakeLists.txt'); version '3.22.1' } }
+}
