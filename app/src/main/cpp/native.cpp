@@ -341,10 +341,27 @@ struct Player {
         {0,0,0,0,0,1,1,1,1,1,1,0}
     };
 
+    // Exact f.class terrain masks used by c(int,int,int,int,int) for tiles 30-37.
+    static constexpr uint8_t terrainMask[12][12] = {
+        {0,0,0,0,0,0,0,0,0,0,0,1},
+        {0,0,0,0,0,0,0,0,0,0,1,1},
+        {0,0,0,0,0,0,0,0,0,1,1,1},
+        {0,0,0,0,0,0,0,0,1,1,1,1},
+        {0,0,0,0,0,0,0,1,1,1,1,1},
+        {0,0,0,0,0,0,1,1,1,1,1,1},
+        {0,0,0,0,0,1,1,1,1,1,1,1},
+        {0,0,0,0,1,1,1,1,1,1,1,1},
+        {0,0,0,1,1,1,1,1,1,1,1,1},
+        {0,0,1,1,1,1,1,1,1,1,1,1},
+        {0,1,1,1,1,1,1,1,1,1,1,1},
+        {1,1,1,1,1,1,1,1,1,1,1,1}
+    };
+
+
     static bool solid(uint8_t raw) {
         const int t=raw & 0x3f;
         // Exact non-collision base cases in f.a(int,int,int,int).
-        return !(t==0 || t==8 || t==9 || t==10 || t==11 || t==12);
+        return !(t==0 || t==8 || t==9 || t==10 || t==11 || t==12 || (t>=30 && t<=37));
     }
 
     // Direct translation of f.b(int,int,int,int): tests the original player
@@ -406,13 +423,108 @@ struct Player {
                 // types which participate in collision. Empty/background and
                 // the dynamic/special non-solid types are handled separately.
                 if (tile == 0 || tile == 8 || tile == 9 ||
-                    tile == 10 || tile == 11 || tile == 12)
+                    tile == 10 || tile == 11 || tile == 12 ||
+                    (tile >= 30 && tile <= 37))
                     continue;
                 if (collidesCell(lv, px, py, row, col))
                     return true;
             }
         }
         return false;
+    }
+
+    // Exact translation of f.c(int x,int y,int row,int col,int tile)
+    // for terrain tiles 30..37. The original uses the triangular mask above
+    // against the selected player mask and invokes b(tile) on contact.
+    bool terrainCollision30_37(int px, int py, int row, int col, int tile) {
+        if (tile < 30 || tile > 37 || row < 0 || row >= 100000 || col < 0)
+            return false;
+
+        const int cellX = col * 12;
+        const int cellY = row * 12;
+        const int ox = px - half - cellX;
+        const int oy = py - half - cellY;
+
+        int tx0, tx1, ty0, ty1;
+        int maskX = 0;
+        int maskY = 0;
+        switch (tile) {
+            case 30: case 34:
+                maskX = 11; maskY = 11; break;
+            case 31: case 35:
+                maskY = 11; break;
+            case 32: case 36:
+                maskX = 11; break;
+            case 33: case 37:
+                maskX = 11; maskY = 0; break;
+        }
+
+        if (ox >= 0) { tx0 = ox; tx1 = 12; }
+        else { tx0 = 0; tx1 = size + ox; }
+        if (oy >= 0) { ty0 = oy; ty1 = 12; }
+        else { ty0 = 0; ty1 = size + oy; }
+
+        tx0 = std::max(0, tx0); ty0 = std::max(0, ty0);
+        tx1 = std::min(12, tx1); ty1 = std::min(12, ty1);
+        if (tx0 >= tx1 || ty0 >= ty1) return false;
+
+        const auto& pm = (size == 16) ? mask16 : mask12;
+        const int maskH = (size == 16) ? 16 : 12;
+        for (int yy = ty0; yy < ty1; ++yy) {
+            for (int xx = tx0; xx < tx1; ++xx) {
+                const int mx = xx - ox;
+                const int my = yy - oy;
+                if (mx < 0 || mx >= 12 || my < 0 || my >= maskH) continue;
+                const int terrainX = std::abs(yy - maskY);
+                const int terrainY = std::abs(xx - maskX);
+                if (terrainX < 0 || terrainX >= 12 || terrainY < 0 || terrainY >= 12)
+                    continue;
+                if (terrainMask[terrainX][terrainY] && pm[my][mx]) {
+                    if (!m) applyTerrainBounce(tile);
+                    return true;
+                }
+            }
+        }
+        return false;
+    }
+
+    // Exact f.b(int) response for tiles 30..37.
+    void applyTerrainBounce(int tile) {
+        const int oldL = vx;
+        switch (tile) {
+            case 35:
+                vx = (vx <= -vy) ? vx : vy;
+                vy = oldL;
+                break;
+            case 37:
+                vx = (-vx <= vy) ? vx : vy;
+                vy = oldL;
+                break;
+            case 34:
+                vx = (vx < vy) ? vx : -vy;
+                vy = -oldL;
+                break;
+            case 36:
+                vx = (vx <= vy) ? -vy : vx;
+                vy = -oldL;
+                break;
+            case 31:
+                vx = (vx <= -vy) ? vx : (vy >> 1);
+                vy = oldL;
+                break;
+            case 33:
+                vx = (-vx <= vy) ? vx : (vy >> 1);
+                vy = oldL;
+                break;
+            case 30:
+                vx = (vx < vy) ? vx : -(vy >> 1);
+                vy = -oldL;
+                break;
+            case 32:
+                vx = (vx <= vy) ? vx : -(vy >> 1);
+                vy = -oldL;
+                break;
+        }
     }
 
     // Native translation of f.a(x,y,row,col) special-tile interaction.
@@ -490,10 +602,16 @@ struct Player {
 
             case 30: case 31: case 32: case 33:
             case 34: case 35: case 36: case 37:
-                // f.a() delegates these to the exact terrain-mask helper c().
-                // Keep them on the native cell-mask path until that helper's
-                // 12x12 terrain mask is copied verbatim.
-                blocked = !collidesCell(lv, px, py, row, col);
+                // These are not ordinary solid tiles. The original f.a()
+                // invokes c(...) and lets c(...) apply b(tile) to the
+                // player's velocity on contact.
+                if (terrainCollision30_37(px, py, row, col, t)) {
+                    if (t >= 34) v = true;
+                    u = true;
+                    blocked = false;
+                } else {
+                    blocked = false;
+                }
                 break;
 
             case 38:
@@ -544,17 +662,6 @@ struct Player {
             case 14: case 18: case 22: case 26: x0+=6; x1-=6; y0+=11; break;
         }
         return aabbOverlap(px-half, py-half, px+half, py+half, x0,y0,x1+1,y1+1);
-    }
-
-    bool slopeCollision30(int px, int py, int row, int col, int t) const {
-        int x0=col*12, y0=row*12, x1=x0+12, y1=y0+12;
-        switch(t) {
-            case 30: case 34: x1-=4; break;
-            case 31: case 35: y1-=4; break;
-            case 32: case 36: x0+=4; break;
-            case 33: case 37: y0+=4; break;
-        }
-        return aabbOverlap(px-half,py-half,px+half,py+half,x0,y0,x1,y1);
     }
 
     static bool aabbOverlap(int ax0,int ay0,int ax1,int ay1,int bx0,int by0,int bx1,int by1) {
