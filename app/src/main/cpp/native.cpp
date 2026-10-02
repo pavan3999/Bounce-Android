@@ -415,6 +415,170 @@ struct Player {
         return false;
     }
 
+    // Native translation of f.a(x,y,row,col) special-tile interaction.
+    // Returns whether the tile should be treated as blocking for this contact.
+    bool interactTile(const Level& lv, int px, int py, int row, int col) {
+        if (row < 0 || row >= lv.height || col < 0 || col >= lv.width || state == 2)
+            return false;
+        int raw = lv.tiles[row * lv.width + col];
+        int flip = raw & 0x40;
+        int t = raw & 0x3F;
+        bool blocked = true;
+
+        switch (t) {
+            case 0: case 8: case 26:
+                return false;
+
+            case 1:
+                if (collidesCell(lv, px, py, row, col)) {
+                    u = true; blocked = false;
+                } else u = true;
+                break;
+
+            case 2:
+                if (collidesCell(lv, px, py, row, col)) {
+                    v = true; blocked = false;
+                } else u = true;
+                break;
+
+            case 3: case 4: case 5: case 6:
+                if (collidesCell(lv, px, py, row, col)) {
+                    v = true; blocked = false; u = true;
+                }
+                break;
+
+            case 7:
+                // Original calls the game's level/object lookup and checks a
+                // 24x24 moving-object rectangle against the player.
+                // Object collision is handled separately below.
+                break;
+
+            case 9:
+                // Goal/finish: original requires a solid contact first and then
+                // completes the level only when the level's final-state flag is set.
+                if (collidesCell(lv, px, py, row, col)) {
+                    blocked = !invincible;
+                }
+                break;
+
+            case 10:
+                // Special bounce/transition tile: ordinary mask collision.
+                blocked = !collidesCell(lv, px, py, row, col);
+                break;
+
+            case 11: case 12:
+                return false;
+
+            case 13: case 17: case 21: case 25:
+                // First slope orientation: exact a(...,13..28) rectangle test.
+                blocked = !slopeCollision(px, py, row, col, t);
+                break;
+            case 14: case 18: case 22: case 26:
+                blocked = !slopeCollision(px, py, row, col, t);
+                break;
+            case 15: case 19: case 23: case 27:
+                blocked = !slopeCollision(px, py, row, col, t);
+                break;
+            case 16: case 20: case 24: case 28:
+                blocked = !slopeCollision(px, py, row, col, t);
+                break;
+
+            case 29:
+                // Normal solid terrain; original performs the generic mask test.
+                blocked = !collidesCell(lv, px, py, row, col);
+                break;
+
+            case 30: case 31: case 32: case 33:
+            case 34: case 35: case 36: case 37:
+                // f.a() delegates these to the exact terrain-mask helper c().
+                // Keep them on the native cell-mask path until that helper's
+                // 12x12 terrain mask is copied verbatim.
+                blocked = !collidesCell(lv, px, py, row, col);
+                break;
+
+            case 38:
+                // Original f.a(): this tile directly arms the h=300 motion state.
+                h = 300;
+                blocked = false;
+                break;
+
+            case 39: case 40: case 41: case 42:
+                // Original calls b(...) first; on contact it changes the level
+                // state through d() and rewrites the neighboring tile(s).
+                if (collidesCell(lv, px, py, row, col)) blocked = false;
+                break;
+
+            case 43: case 44: case 45: case 46:
+                if (collidesCell(lv, px, py, row, col)) {
+                    blocked = false;
+                    if (size == 12) fSwitch16();
+                }
+                break;
+
+            case 47: case 48: case 49: case 50:
+                // Exact bytecode: g = 300; m = false.
+                g = 300;
+                m = false;
+                blocked = false;
+                break;
+
+            case 51: case 52: case 53: case 54:
+                // Exact bytecode: y = 300 (the field is named y in f.class).
+                yState = 300;
+                blocked = false;
+                break;
+
+            default:
+                blocked = !collidesCell(lv, px, py, row, col);
+                break;
+        }
+        return blocked;
+    }
+
+    bool slopeCollision(int px, int py, int row, int col, int t) const {
+        int x0=col*12, y0=row*12, x1=x0+12, y1=y0+12;
+        switch(t) {
+            case 15: case 19: case 23: case 27: y0+=6; y1-=6; x1-=11; break;
+            case 16: case 20: case 24: case 28: y0+=6; y1-=6; x0+=11; break;
+            case 13: case 17: case 21: case 25: x0+=6; x1-=6; y1-=11; break;
+            case 14: case 18: case 22: case 26: x0+=6; x1-=6; y0+=11; break;
+        }
+        return aabbOverlap(px-half, py-half, px+half, py+half, x0,y0,x1+1,y1+1);
+    }
+
+    bool slopeCollision30(int px, int py, int row, int col, int t) const {
+        int x0=col*12, y0=row*12, x1=x0+12, y1=y0+12;
+        switch(t) {
+            case 30: case 34: x1-=4; break;
+            case 31: case 35: y1-=4; break;
+            case 32: case 36: x0+=4; break;
+            case 33: case 37: y0+=4; break;
+        }
+        return aabbOverlap(px-half,py-half,px+half,py+half,x0,y0,x1,y1);
+    }
+
+    static bool aabbOverlap(int ax0,int ay0,int ax1,int ay1,int bx0,int by0,int bx1,int by1) {
+        return ax0 <= bx1 && ay0 <= by1 && bx0 <= ax1 && by0 <= ay1;
+    }
+
+    void fSwitch16() {
+        size = 16; half = 8;
+    }
+
+    bool touchesSpecial(const Level& lv, int px, int py) {
+        int left=px-half, top=py-half, right=px+half-1, bottom=py+half-1;
+        int c0=std::max(0,left/12), c1=std::min<int>(lv.width-1,right/12);
+        int r0=std::max(0,top/12), r1=std::min<int>(lv.height-1,bottom/12);
+        bool changed=false;
+        for(int r=r0;r<=r1;++r) for(int c=c0;c<=c1;++c) {
+            int t=lv.tiles[r*lv.width+c]&0x3F;
+            if(t>=13 || t==1 || t==2 || (t>=3&&t<=7) || (t>=38&&t<=54)) {
+                changed |= interactTile(lv,px,py,r,c);
+            }
+        }
+        return changed;
+    }
+
     void update(const Level& lv) {
         const int ts=12;
         size=lv.playerSize(); half=size/2;
@@ -457,6 +621,7 @@ struct Player {
         const int vsteps=std::abs(vy)/10;
         for(int step=0; step<vsteps; ++step) {
             int dir=(vy==0)?0:(vy<0?-1:1);
+            if (touchesSpecial(lv, x, y + dir)) { /* interaction updates state */ }
             if(collidesAt(lv,x,y+dir)) {
                 y+=dir;
                 m=false;
@@ -509,6 +674,7 @@ struct Player {
         for(int step=0; step<hsteps; ++step) {
             const int dir=(vx>0)-(vx<0);
             if(!dir) break;
+            if (touchesSpecial(lv, x + dir, y)) { /* interaction updates state */ }
             if(collidesAt(lv,x+dir,y)) {
                 if(u) {
                     u=false;
