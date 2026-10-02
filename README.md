@@ -23,3 +23,7 @@ Native Android/NDK port scaffold for the uploaded Nokia Bounce J2ME build.
 This is still a development port, not a claim of 1:1 gameplay completion. Remaining work includes the complete player state machine, exact tile collision semantics, exact object behavior, player animation/state transitions, HUD, OTT audio playback, menus, persistence and final build validation on Android hardware.
 
 This project does not include a J2ME runtime or emulator.
+
+## Player physics revision
+
+The native player now follows the structure of the original `com.nokia.mid.appl.boun.f.b()` update routine: integer velocity limits, 10-pixel substeps, tile-under-player special handling, original 12x12/16x12 collision masks extracted from the JAR bytecode, horizontal acceleration/deceleration, and the `g=300` advanced-cheat impulse. This remains under validation against the original runtime and is not claimed as a final pixel-perfect physics verification yet.

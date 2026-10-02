@@ -284,11 +284,16 @@ public:
 };
 
 struct Player {
-    int x=18,y=48; int vx=0,vy=0; int size=12,half=6;
-    bool onGround=false, rolling=false, invincible=false; int g=0;
-    int input=0;
+    // Direct translation of f.class' persistent movement fields.
+    int x=64, y=48;          // s, r
+    int vx=0, vy=0;           // l, o
+    int size=12, half=6;      // a, p
+    int input=0;              // w: 1=left, 2=right, 4=up, 8=action/down
+    int t=0, h=0, g=0, yState=0, anim=0;
+    bool m=false, v=false, u=false;
+    int state=1;              // z: 1 normal, 2 death animation
+    bool invincible=false;
 
-    // These are the exact collision masks embedded in f.class.
     static constexpr uint8_t mask12[12][12] = {
         {0,0,0,0,1,1,1,1,0,0,0,0},
         {0,0,1,1,1,1,1,1,1,1,0,0},
@@ -304,7 +309,7 @@ struct Player {
         {0,0,0,0,1,1,1,1,0,0,0,0}
     };
     static constexpr uint8_t mask16[16][12] = {
-        {0,0,0,0,0,1,1,1,1,1,0,0},
+        {0,0,0,0,0,1,1,1,1,1,1,0},
         {0,0,0,1,1,1,1,1,1,1,1,1},
         {0,0,1,1,1,1,1,1,1,1,1,1},
         {0,1,1,1,1,1,1,1,1,1,1,1},
@@ -319,64 +324,143 @@ struct Player {
         {0,1,1,1,1,1,1,1,1,1,1,0},
         {0,0,1,1,1,1,1,1,1,1,0,0},
         {0,0,0,1,1,1,1,1,1,1,1,0},
-        {0,0,0,0,0,1,1,1,1,1,0,0}
+        {0,0,0,0,0,1,1,1,1,1,1,0}
     };
 
-    // Tile classes 0/8/9/10/11/12 are non-solid in the base collision path.
-    static bool tileSolid(uint8_t raw) {
-        const int t=raw&0x3f;
+    static bool solid(uint8_t raw) {
+        const int t=raw & 0x3f;
+        // Exact non-collision base cases in f.a(int,int,int,int).
         return !(t==0 || t==8 || t==9 || t==10 || t==11 || t==12);
     }
 
-    bool collides(const Level& l,int px,int py) const {
+    bool collidesAt(const Level& lv, int px, int py) const {
+        // Exact geometry used by f.b(int,int): the level collision grid is
+        // addressed in 12-pixel cells even for the 16-pixel player variant.
         const int p=half;
-        const int x0=(px-p)/12, y0=(py-p)/12;
-        const int x1=(px+p-1)/12+1, y1=(py+p-1)/12+1;
-        const auto& mask=(size==16?mask16:mask12);
-        for(int ty=std::max(0,y0);ty<std::min<int>(l.height,y1);++ty) {
-            for(int tx=std::max(0,x0);tx<std::min<int>(l.width,x1);++tx) {
-                if(!tileSolid(l.tiles[ty*l.width+tx])) continue;
-                int ox=px-p-tx*12, oy=py-p-ty*12;
-                int ix0=std::max(0,ox), iy0=std::max(0,oy);
-                const int maskW=12;
-                const int maskH=(size==16?16:12);
-                int ix1=std::min(maskW,ox+size), iy1=std::min(maskH,oy+size);
-                if(ix1<=ix0||iy1<=iy0) continue;
-                for(int my=iy0;my<iy1;++my) {
-                    for(int mx=ix0;mx<ix1;++mx) {
-                        if(mask[my][mx]) return true;
-                    }
-                }
+        int x0=(px-p)/12, y0=(py-p)/12;
+        int x1=((px-1)+p)/12 + 1;
+        int y1=((py-1)+p)/12 + 1;
+        const auto& mask = (size==16) ? mask16 : mask12;
+        x0=std::max(0,x0); y0=std::max(0,y0);
+        x1=std::min<int>(lv.width,x1); y1=std::min<int>(lv.height,y1);
+        for(int ty=y0; ty<y1; ++ty) {
+            for(int tx=x0; tx<x1; ++tx) {
+                if(!solid(lv.tiles[ty*lv.width+tx])) continue;
+                const int baseX=tx*12, baseY=ty*12;
+                int ox=px-p-baseX, oy=py-p-baseY;
+                int sx=std::max(0,ox), sy=std::max(0,oy);
+                int ex=std::min(12,ox+12), ey=std::min(12,oy+12);
+                if(ex<=sx || ey<=sy) continue;
+                for(int yy=sy; yy<ey; ++yy)
+                    for(int xx=sx; xx<ex; ++xx)
+                        if(mask[yy][xx]) return true;
             }
         }
         return false;
     }
 
-    void update(const Level& l) {
-        size=l.tileSize(); half=size/2;
-        const int inputDir=((input&2)?1:0)-((input&1)?1:0);
-        if(inputDir) vx=std::clamp(vx+inputDir*6,-150,150);
-        else if(vx>0) vx=std::max(0,vx-4); else if(vx<0) vx=std::min(0,vx+4);
+    void update(const Level& lv) {
+        size=lv.tileSize(); half=size/2;
+        if(state==2) return;
 
-        // Native fixed-step approximation of f.b(): the original clamps horizontal/vertical
-        // velocity to ±150 and resolves movement one-pixel collision steps.
-        vy=std::clamp(vy+4,-150,150);
-        const int sx=(vx>0)-(vx<0), sy=(vy>0)-(vy<0);
-        const int steps=std::max(1,std::max(std::abs(vx),std::abs(vy))/10);
-        for(int i=0;i<steps;++i) {
-            if(sx) {
-                if(!collides(l,x+sx,y)) x+=sx;
-                else vx=-vx/2;
-            }
-            if(sy) {
-                if(!collides(l,x,y+sy)) { y+=sy; onGround=false; }
-                else {
-                    if(sy>0) { vy=0; onGround=true; }
-                    else vy=-vy/2;
+        // Match f.b(): choose vertical acceleration from the tile underneath.
+        const int cx=x/12, cy=y/12;
+        bool flipped=false;
+        if(cy>=0 && cy<lv.height && cx>=0 && cx<lv.width)
+            flipped=(lv.tiles[cy*lv.width+cx] & 0x40)!=0;
+
+        int accelY, accelX;
+        if(flipped) {
+            if(size==16) { accelY=-30; accelX=-2; }
+            else { accelY=42; accelX=6; }
+            if(m) vy=-10;
+        } else if(size==16) { accelY=38; accelX=3; }
+        else { accelY=80; accelX=4; }
+
+        bool specialMotion=false;
+        if(g>0) {
+            specialMotion=true;
+            accelY=-accelY; accelX=-accelX;
+            --g;
+            if(g==0) m=false;
+        }
+
+        if(yState>0) {
+            int oldAbs=std::abs(t);
+            if(-oldAbs <= -80) t=specialMotion ? 80 : -80;
+            --yState;
+        }
+
+        ++anim; if(anim==3) anim=0;
+        vy=std::clamp(vy,-150,150);
+        vx=std::clamp(vx,-150,150);
+        if(vy>0 && vy<10 && !flipped && !specialMotion) vy=10;
+
+        // Exact vertical sub-stepping structure from f.b().
+        const int vsteps=std::abs(vy)/10;
+        for(int step=0; step<vsteps; ++step) {
+            int dir=(vy==0)?0:(vy<0?-1:1);
+            if(collidesAt(lv,x,y+dir)) {
+                y+=dir;
+                m=false;
+                if(accelY==-30) {
+                    const int ty=y/12;
+                    if(ty>=0 && ty<lv.height && cx>=0 && cx<lv.width &&
+                       !(lv.tiles[ty*lv.width+cx]&0x40)) {
+                        vy >>= 1;
+                        if(vy<=10 && vy>=-10) vy=0;
+                    }
+                }
+            } else {
+                if(u && vx<10 && anim==0) {
+                    if(collidesAt(lv,x+1,y+dir)) { x+=1; y+=dir; u=false; }
+                    else if(collidesAt(lv,x-1,y+dir)) { x-=1; y+=dir; u=false; }
+                }
+                if(dir<=0 || specialMotion) {
+                    vy=-vy/2;
+                    m=true;
+                    if(v && (input&8)) { v=false; t += specialMotion ? 10 : -10; }
+                    else if(yState==0) t=0;
+                    if(vy<10 && vy>-10) vy=specialMotion ? -10 : 10;
+                } else if(specialMotion) {
+                    vy=-20;
+                } else {
+                    vy=-vy/2;
                 }
             }
         }
-        if(g>0) { vy=-std::max(1,g/30); --g; }
+
+        // Special movement settling from the original b().
+        if(specialMotion) {
+            if(accelX==-2 && vy<accelY) { vy += accelX; if(vy>accelY) vy=accelY; }
+            else if(!m && vy>accelY) { vy += accelX; if(vy<accelY) vy=accelY; }
+        } else if(!m && vy>accelY) {
+            vy += accelX; if(vy<accelY) vy=accelY;
+        }
+
+        // Horizontal acceleration/deceleration from the original final block.
+        const int limit = yState ? 100 : 50;
+        if(input&2) {
+            if(vx<limit) vx+=6;
+        } else if(input&1) {
+            if(vx>-limit) vx-=6;
+        } else if(vx>0) vx=std::max(0,vx-4);
+        else if(vx<0) vx=std::min(0,vx+4);
+
+        // Exact horizontal sub-step count: abs(vx)/10.
+        const int hsteps=std::abs(vx)/10;
+        for(int step=0; step<hsteps; ++step) {
+            const int dir=(vx>0)-(vx<0);
+            if(!dir) break;
+            if(collidesAt(lv,x+dir,y)) {
+                if(u) {
+                    u=false;
+                    if(collidesAt(lv,x+dir,y+1)) { x+=dir; y+=1; }
+                    else if(collidesAt(lv,x+dir,y-1)) { x+=dir; y-=1; }
+                    else vx=-vx/2;
+                } else vx=-vx/2;
+            } else x+=dir;
+        }
     }
 };
 
@@ -398,6 +482,7 @@ public:
         return 0;
     }
     int consumeLevelDelta(){int d=pendingLevelDelta;pendingLevelDelta=0;return d;}
+    int consumeFlyG(){int v=flyG; flyG=0; return v;}
     bool consumeComplete(){bool v=pendingComplete;pendingComplete=false;return v;}
     bool advancedMode()const{return advanced;}
 };
@@ -421,13 +506,14 @@ Java_com_pavan3999_bounce_MainActivity_nativeLoadLevel(JNIEnv* env,jobject,jbyte
     jbyte* lp=env->GetByteArrayElements(levelBytes,nullptr);
     renderer.setLevel(reinterpret_cast<const uint8_t*>(lp),ln);
     env->ReleaseByteArrayElements(levelBytes,lp,JNI_ABORT);
-    player.x=64; player.y=48; player.vx=player.vy=0; player.input=0; player.onGround=false;
+    player.x=64; player.y=48; player.vx=player.vy=0; player.input=0;
 }
 
 extern "C" JNIEXPORT jintArray JNICALL
 Java_com_pavan3999_bounce_MainActivity_nativeFrame(JNIEnv* env,jobject){
     player.invincible = cheats.invincible;
-    player.g = cheats.flyG;
+    const int cheatG = cheats.consumeFlyG();
+    if (cheatG) player.g = cheatG;
     player.update(renderer.currentLevel());
     renderer.setPlayerWorld(player.x,player.y);
     renderer.render();
