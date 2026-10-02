@@ -955,9 +955,21 @@ Java_com_pavan3999_bounce_MainActivity_nativeKey(JNIEnv*,jobject,jint key){
 }
 
 extern "C" JNIEXPORT void JNICALL
-Java_com_pavan3999_bounce_MainActivity_nativeTouch(JNIEnv*,jobject,jfloat x,jfloat y,jint action){
-    if(action==1||action==3) { player.input=0; return; }
-    if(y>PLAYFIELD_H) {
-        if(x<42) player.input|=1; else if(x>86) player.input|=2;
+Java_com_pavan3999_bounce_MainActivity_nativeTouch(
+        JNIEnv*, jobject, jfloat x, jfloat y, jint action) {
+
+    if (action == 1 || action == 3) {
+        player.input &= ~(1 | 2);
+        return;
+    }
+
+    // Recompute horizontal input from the current touch position.
+    player.input &= ~(1 | 2);
+
+    if (y > PLAYFIELD_H) {
+        if (x < 42)
+            player.input |= 1;       // LEFT
+        else if (x > 86)
+            player.input |= 2;       // RIGHT
     }
 }
