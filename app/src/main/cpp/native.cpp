@@ -559,7 +559,7 @@ struct Player {
         bool blocked = true;
 
         switch (t) {
-            case 0: case 8: case 26:
+            case 0: case 8:
                 return false;
 
             case 1:
