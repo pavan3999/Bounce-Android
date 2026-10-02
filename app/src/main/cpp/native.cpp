@@ -174,7 +174,10 @@ public:
         constexpr int ts=12;
         for(const auto& r: level.records){
             ObjectState o; o.base=r;
-            o.x=static_cast<int>(r.px)*ts; o.y=static_cast<int>(r.py)*ts;
+            // Original J2ME stores w as movement offset from the object's
+            // base tile; world position is base tile * 12 + w.
+            o.x=static_cast<int>(r.wx);
+            o.y=static_cast<int>(r.wy);
             o.dx=static_cast<int8_t>(r.dx); o.dy=static_cast<int8_t>(r.dy);
             objects.push_back(o);
         }
@@ -301,7 +304,10 @@ public:
             }
         updateObjects();
         for(const auto& o:objects){
-            const int ox=o.x-cameraX, oy=o.y-cameraY;
+            const int worldX=static_cast<int>(o.base.px)*12 + o.x;
+            const int worldY=static_cast<int>(o.base.py)*12 + o.y;
+            const int ox=worldX-cameraX;
+            const int oy=worldY-cameraY;
             if(ox>=-24 && ox<LOGICAL_W && oy>=-24 && oy<PLAYFIELD_H)
                 blit(object24,ox,oy);
         }
