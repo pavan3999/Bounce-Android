@@ -872,16 +872,52 @@ Java_com_pavan3999_bounce_MainActivity_nativeLoadLevel(JNIEnv* env,jobject,jbyte
     jbyte* lp=env->GetByteArrayElements(levelBytes,nullptr);
     renderer.setLevel(reinterpret_cast<const uint8_t*>(lp),ln);
     env->ReleaseByteArrayElements(levelBytes,lp,JNI_ABORT);
-    player.x=64; player.y=48; player.vx=player.vy=0; player.input=0;
+    player.x=64;
+    player.y=48;
+    player.vx=player.vy=0;
+    player.input=0;
+    player.t=0;
+    player.h=0;
+    player.g=0;
+    player.yState=0;
+    player.anim=0;
+    player.m=false;
+    player.v=false;
+    player.u=false;
+    player.state=1;
+    player.deathTriggered=false;
+    player.deathTicks=0;
 }
 
 extern "C" JNIEXPORT jintArray JNICALL
 Java_com_pavan3999_bounce_MainActivity_nativeFrame(JNIEnv* env,jobject){
-    // Crash-isolation: test renderer only.
+    // Run the original-player movement/physics translation first.
+    const auto& lv = renderer.currentLevel();
+
+    if (lv.width != 0 && lv.height != 0) {
+        const int flyG = cheats.consumeFlyG();
+        if (flyG != 0)
+            player.g = flyG;
+
+        player.invincible = cheats.invincible;
+        player.update(lv);
+
+        renderer.setPlayerWorld(player.x, player.y);
+    }
+
     renderer.render();
 
+    // Original f.class uses A=Q47 for the 12px player and
+    // B=Q49 for the 16px player. s/r are the player centre coordinates,
+    // while p is the half-size, so rendering starts at s-p,r-p.
+    const int playerFrame = (player.size == 16) ? 49 : 47;
+    renderer.drawPlayer(
+        player.x - player.half,
+        player.y - player.half,
+        playerFrame
+    );
+
     const auto& p = renderer.pixels();
-    LOGI("nativeFrame: renderer pixel count=%zu", p.size());
 
     if (p.size() != 128 * 128) {
         LOGI("nativeFrame: invalid renderer pixel count; returning null");
