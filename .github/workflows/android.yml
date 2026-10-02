@@ -43,7 +43,11 @@ jobs:
           if [ -z "$SDKMANAGER" ]; then
             echo "::error::sdkmanager was not found"
             echo "Android SDK contents:"
-            find "$ANDROID_HOME" -maxdepth 4 -type f -name sdkmanager -print || true
+            find "$ANDROID_HOME" \
+              -maxdepth 5 \
+              -type f \
+              -name sdkmanager \
+              -print || true
             exit 1
           fi
 
@@ -74,6 +78,11 @@ jobs:
         run: |
           yes | sdkmanager --licenses > /dev/null || true
 
+      - name: Show available Android SDK packages
+        shell: bash
+        run: |
+          sdkmanager --list
+
       - name: Install Android SDK components
         shell: bash
         run: |
@@ -81,12 +90,11 @@ jobs:
 
           sdkmanager \
             "platform-tools" \
-            "platforms;android-37" \
             "build-tools;35.0.0" \
             "cmake;3.22.1" \
             "ndk;27.2.12479018"
 
-      - name: Verify Android SDK components
+      - name: Verify installed Android SDK components
         shell: bash
         run: |
           set -e
