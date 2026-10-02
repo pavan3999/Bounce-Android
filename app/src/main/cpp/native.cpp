@@ -181,17 +181,36 @@ public:
     }
     void setPlayerWorld(int x,int y){ playerWorldX=x; playerWorldY=y; }
     void updateObjects(){
-        const int ts=level.tileSize();
+        // Direct translation of b.o(): w += ae; bounds are
+        // (O-P-2)*12 pixels; ae reverses at either endpoint.
         for(auto& o:objects){
-            o.x += o.dx; o.y += o.dy;
-            const int minX=static_cast<int>(o.base.px)*ts;
-            const int minY=static_cast<int>(o.base.py)*ts;
-            const int maxX=static_cast<int>(o.base.ox)*ts;
-            const int maxY=static_cast<int>(o.base.oy)*ts;
-            if(maxX>minX && (o.x<minX || o.x>maxX)){ o.x=std::clamp(o.x,minX,maxX); o.dx=-o.dx; }
-            if(maxY>minY && (o.y<minY || o.y>maxY)){ o.y=std::clamp(o.y,minY,maxY); o.dy=-o.dy; }
+            const int maxX=std::max(0,
+                (static_cast<int>(o.base.ox)-static_cast<int>(o.base.px)-2)*12);
+            const int maxY=std::max(0,
+                (static_cast<int>(o.base.oy)-static_cast<int>(o.base.py)-2)*12);
+
+            o.x += o.dx;
+            if(o.x < 0) { o.x=0; o.dx=-o.dx; }
+            else if(o.x > maxX) { o.x=maxX; o.dx=-o.dx; }
+
+            o.y += o.dy;
+            if(o.y < 0) { o.y=0; o.dy=-o.dy; }
+            else if(o.y > maxY) { o.y=maxY; o.dy=-o.dy; }
         }
     }
+
+    // Exact 24x24 moving-object rectangle used by f.a() case 10.
+    bool objectHit(int px,int py,int playerHalf) const {
+        for(const auto& o:objects){
+            const int ox=static_cast<int>(o.base.px)*12 + o.x;
+            const int oy=static_cast<int>(o.base.py)*12 + o.y;
+            if(px-playerHalf <= ox+23 && px+playerHalf-1 >= ox &&
+               py-playerHalf <= oy+23 && py+playerHalf-1 >= oy)
+                return true;
+        }
+        return false;
+    }
+
     void clear(uint32_t c){std::fill(frame.begin(),frame.end(),c);}
     void blit(const Image& im,int dx,int dy) {
         for(int y=0;y<im.h;++y) for(int x=0;x<im.w;++x){
@@ -307,6 +326,8 @@ struct Player {
     bool m=false, v=false, u=false;
     int state=1;              // z: 1 normal, 2 death animation
     bool invincible=false;
+    bool deathTriggered=false;
+    int deathTicks=0;
 
     static constexpr uint8_t mask12[12][12] = {
         {0,0,0,0,1,1,1,1,0,0,0,0},
@@ -686,10 +707,20 @@ struct Player {
         return changed;
     }
 
+    void triggerDeath() {
+        if(invincible || state==2) return;
+        state=2;
+        deathTicks=7;
+        deathTriggered=true;
+        vx=vy=0;
+        h=g=yState=0;
+        m=false;
+    }
+
     void update(const Level& lv) {
         const int ts=12;
         size=lv.playerSize(); half=size/2;
-        if(state==2) return;
+        if(state==2) { if(deathTicks>0) --deathTicks; return; }
 
         // Match f.b(): choose vertical acceleration from the tile underneath.
         const int cx=x/12, cy=y/12;
@@ -845,9 +876,20 @@ Java_com_pavan3999_bounce_MainActivity_nativeFrame(JNIEnv* env,jobject){
     const int cheatG = cheats.consumeFlyG();
     if (cheatG) player.g = cheatG;
     player.update(renderer.currentLevel());
+
+    // Original f.a() case 10: locate the moving object and test the player's
+    // rectangle against its 24x24 collision rectangle; a hit calls f.e().
+    if(!player.invincible && player.state!=2 &&
+       renderer.objectHit(player.x,player.y,player.half)) {
+        player.triggerDeath();
+    }
+
     renderer.setPlayerWorld(player.x,player.y);
     renderer.render();
-    renderer.drawPlayer(player.x, player.y, 47);
+    int playerFrame = 47;
+    if(player.state==2 || player.size==16) playerFrame=49;
+    else if(player.vx<0 && player.anim==2) playerFrame=48;
+    renderer.drawPlayer(player.x, player.y, playerFrame);
     const auto& p=renderer.pixels(); jintArray out=env->NewIntArray(static_cast<jsize>(p.size())); env->SetIntArrayRegion(out,0,p.size(),reinterpret_cast<const jint*>(p.data())); return out;
 }
 
