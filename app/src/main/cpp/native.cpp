@@ -862,8 +862,10 @@ Java_com_pavan3999_bounce_MainActivity_nativeFrame(JNIEnv* env,jobject){
     renderer.render();
 
     const auto& p = renderer.pixels();
+    LOGI("nativeFrame: renderer pixel count=%zu", p.size());
 
     if (p.size() != 128 * 128) {
+        LOGI("nativeFrame: invalid renderer pixel count; returning null");
         return nullptr;
     }
 
