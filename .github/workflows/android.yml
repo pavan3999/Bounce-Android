@@ -23,20 +23,18 @@ jobs:
           distribution: temurin
           java-version: '21'
 
-      - name: Set up Android SDK
-        uses: android-actions/setup-android@v3
-
       - name: Accept Android SDK licenses
         run: |
           yes | sdkmanager --licenses > /dev/null || true
 
       - name: Install Android SDK components
         run: |
-          sdkmanager "platform-tools"
-          sdkmanager "platforms;android-37"
-          sdkmanager "build-tools;35.0.0"
-          sdkmanager "cmake;3.22.1"
-          sdkmanager "ndk;27.2.12479018"
+          sdkmanager \
+            "platform-tools" \
+            "platforms;android-37" \
+            "build-tools;35.0.0" \
+            "cmake;3.22.1" \
+            "ndk;27.2.12479018"
 
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v4
