@@ -872,18 +872,23 @@ Java_com_pavan3999_bounce_MainActivity_nativeLoadLevel(JNIEnv* env,jobject,jbyte
 
 extern "C" JNIEXPORT jintArray JNICALL
 Java_com_pavan3999_bounce_MainActivity_nativeFrame(JNIEnv* env,jobject){
-    // Crash-isolation frame: bypass all native gameplay/rendering.
+    // Crash-isolation: test renderer only.
+    renderer.render();
+
+    const auto& p = renderer.pixels();
+
+    if (p.size() != 128 * 128) {
+        return nullptr;
+    }
+
     jintArray out = env->NewIntArray(128 * 128);
     if (!out) return nullptr;
-
-    std::array<jint, 128 * 128> pixels{};
-    pixels.fill(static_cast<jint>(0xFFB0E0F0u));
 
     env->SetIntArrayRegion(
         out,
         0,
-        static_cast<jsize>(pixels.size()),
-        pixels.data()
+        128 * 128,
+        reinterpret_cast<const jint*>(p.data())
     );
 
     return out;
