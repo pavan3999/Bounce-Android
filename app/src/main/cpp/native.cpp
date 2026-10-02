@@ -299,7 +299,12 @@ public:
                 const int sy=ty*ts-(cameraY%ts);
                 drawTile(id,variant,sx,sy);
             }
-        // Object rendering disabled for tile-only crash isolation.
+        updateObjects();
+        for(const auto& o:objects){
+            const int ox=o.x-cameraX, oy=o.y-cameraY;
+            if(ox>=-24 && ox<LOGICAL_W && oy>=-24 && oy<PLAYFIELD_H)
+                blit(object24,ox,oy);
+        }
         // HUD: reserve the original 32px strip. Score/lives are supplied by the
         // game controller in the next pass; keep the strip opaque rather than fake text.
         for(int y=PLAYFIELD_H;y<LOGICAL_H;++y)
