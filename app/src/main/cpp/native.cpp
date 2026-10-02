@@ -34,6 +34,12 @@ struct Level {
     int heightPx() const { return height * tileSize(); }
 };
 
+struct ObjectState {
+    LevelRecord base{};
+    int x=0, y=0;
+    int dx=0, dy=0;
+};
+
 class Reader {
     const uint8_t* p; size_t n, i=0;
 public:
@@ -134,16 +140,55 @@ std::array<Image,67> buildQ(const std::vector<uint32_t>& atlas, int aw, int ah) 
 
 class Renderer {
     std::array<Image,67> q{};
+    Image object24{};
     Level level{};
+    std::vector<ObjectState> objects;
     std::vector<uint32_t> frame{LOGICAL_W*LOGICAL_H};
     int cameraX=0, cameraY=0;
+    int playerWorldX=64, playerWorldY=48;
 public:
     void setAssets(const jint* pixels, int w, int h) {
         std::vector<uint32_t> a(static_cast<size_t>(w)*h);
         std::memcpy(a.data(), pixels, a.size()*sizeof(uint32_t));
         q=buildQ(a,w,h);
+        object24=Image{24,24}; object24.p.assign(24*24,0);
+        auto blit24=[&](const Image& im,int ox,int oy,int t){
+            Image tr=transform(im,t);
+            for(int yy=0;yy<tr.h;++yy) for(int xx=0;xx<tr.w;++xx){
+                int dx=ox+xx,dy=oy+yy;
+                if(dx>=0&&dy>=0&&dx<24&&dy<24){
+                    uint32_t px=tr.p[yy*tr.w+xx];
+                    if((px>>24)!=0) object24.p[dy*24+dx]=px;
+                }
+            }
+        };
+        blit24(q[46],0,0,0); blit24(q[46],12,0,1);
+        blit24(q[46],0,12,2); blit24(q[46],12,12,4);
     }
-    void setLevel(const uint8_t* data,size_t n){ level=parseLevel(data,n); cameraX=0; cameraY=0; }
+    void setLevel(const uint8_t* data,size_t n){
+        level=parseLevel(data,n); cameraX=0; cameraY=0; objects.clear();
+        objects.reserve(level.records.size());
+        const int ts=level.tileSize();
+        for(const auto& r: level.records){
+            ObjectState o; o.base=r;
+            o.x=static_cast<int>(r.px)*ts; o.y=static_cast<int>(r.py)*ts;
+            o.dx=static_cast<int8_t>(r.dx); o.dy=static_cast<int8_t>(r.dy);
+            objects.push_back(o);
+        }
+    }
+    void setPlayerWorld(int x,int y){ playerWorldX=x; playerWorldY=y; }
+    void updateObjects(){
+        const int ts=level.tileSize();
+        for(auto& o:objects){
+            o.x += o.dx; o.y += o.dy;
+            const int minX=static_cast<int>(o.base.px)*ts;
+            const int minY=static_cast<int>(o.base.py)*ts;
+            const int maxX=static_cast<int>(o.base.ox)*ts;
+            const int maxY=static_cast<int>(o.base.oy)*ts;
+            if(maxX>minX && (o.x<minX || o.x>maxX)){ o.x=std::clamp(o.x,minX,maxX); o.dx=-o.dx; }
+            if(maxY>minY && (o.y<minY || o.y>maxY)){ o.y=std::clamp(o.y,minY,maxY); o.dy=-o.dy; }
+        }
+    }
     void clear(uint32_t c){std::fill(frame.begin(),frame.end(),c);}
     void blit(const Image& im,int dx,int dy) {
         for(int y=0;y<im.h;++y) for(int x=0;x<im.w;++x){
@@ -201,18 +246,35 @@ public:
     void render() {
         clear(BLUE);
         if(level.width==0||level.height==0) return;
-        int maxX=std::max(0,level.width*TILE-OFFSCREEN_W);
-        cameraX=std::clamp(cameraX,0,maxX);
-        int startX=cameraX/TILE;
-        int startY=cameraY/TILE;
-        for(int ty=0;ty<8 && startY+ty<level.height;++ty)
-            for(int tx=0;tx<13 && startX+tx<level.width;++tx) {
-                uint8_t raw=level.tiles[(startY+ty)*level.width+(startX+tx)];
-                bool variant=(raw&0x40)!=0;
-                int id=raw&0x3F;
-                drawTile(id,variant,tx*TILE-(cameraX%TILE),ty*TILE-(cameraY%TILE));
+        const int ts=level.tileSize();
+        const int worldW=level.width*ts;
+        const int worldH=level.height*ts;
+        const int viewW=OFFSCREEN_W;
+        const int viewH=OFFSCREEN_H;
+        cameraX=std::clamp(playerWorldX-64,0,std::max(0,worldW-viewW));
+        cameraY=std::clamp(playerWorldY-48,0,std::max(0,worldH-viewH));
+        const int startX=cameraX/ts;
+        const int startY=cameraY/ts;
+        const int cols=OFFSCREEN_W/ts+1;
+        const int rows=OFFSCREEN_H/ts+1;
+        for(int ty=0;ty<rows && startY+ty<level.height;++ty)
+            for(int tx=0;tx<cols && startX+tx<level.width;++tx) {
+                const uint8_t raw=level.tiles[(startY+ty)*level.width+(startX+tx)];
+                const bool variant=(raw&0x40)!=0;
+                const int id=raw&0x3F;
+                const int sx=tx*ts-(cameraX%ts);
+                const int sy=ty*ts-(cameraY%ts);
+                // Original Q sprites are 12px; 16px-format levels use the original
+                // map coordinate spacing while retaining the source sprite dimensions.
+                drawTile(id,variant,sx,sy);
             }
-        // HUD strip; the original reserves the lower 32 logical pixels.
+        updateObjects();
+        for(const auto& o:objects){
+            const int ox=o.x-cameraX, oy=o.y-cameraY;
+            if(ox>=-24 && ox<LOGICAL_W && oy>=-24 && oy<PLAYFIELD_H) blit(object24,ox,oy);
+        }
+        // HUD: reserve the original 32px strip. Score/lives are supplied by the
+        // game controller in the next pass; keep the strip opaque rather than fake text.
         for(int y=PLAYFIELD_H;y<LOGICAL_H;++y)
             for(int x=0;x<LOGICAL_W;++x) frame[y*LOGICAL_W+x]=0xFF000000u;
     }
@@ -276,7 +338,9 @@ struct Player {
                 if(!tileSolid(l.tiles[ty*l.width+tx])) continue;
                 int ox=px-p-tx*12, oy=py-p-ty*12;
                 int ix0=std::max(0,ox), iy0=std::max(0,oy);
-                int ix1=std::min(12,ox+size), iy1=std::min(size,oy+size);
+                const int maskW=12;
+                const int maskH=(size==16?16:12);
+                int ix1=std::min(maskW,ox+size), iy1=std::min(maskH,oy+size);
                 if(ix1<=ix0||iy1<=iy0) continue;
                 for(int my=iy0;my<iy1;++my) {
                     for(int mx=ix0;mx<ix1;++mx) {
@@ -317,21 +381,24 @@ struct Player {
 };
 
 class Cheats {
-    int state=0; bool advanced=false;
+    int state=0; bool advanced=false; int pendingLevelDelta=0; bool pendingComplete=false;
 public:
     bool invincible=false; int flyG=0;
-    void key(int k) {
+    int key(int k) {
         switch(k){
         case '7': state=(state==0||state==2)?state+1:0; break;
         case '8': if(state==1||state==3)++state; else if(state==5){invincible=true;state=0;} else state=0; break;
         case '9': if(state==4){advanced=true;state=0;}else state=0;break;
-        case '1': if(advanced)LOGI("cheat previous level");break;
-        case '3': if(advanced)LOGI("cheat next level");break;
-        case '5': if(advanced)invincible=true;break;
-        case '#': if(advanced)flyG=300;break;
+        case '1': if(advanced) pendingLevelDelta=-1; break;
+        case '3': if(advanced) pendingLevelDelta=1; break;
+        case '5': if(advanced) invincible=true; break;
+        case '#': if(advanced) flyG=300; break;
         default: state=0;break;
         }
+        return 0;
     }
+    int consumeLevelDelta(){int d=pendingLevelDelta;pendingLevelDelta=0;return d;}
+    bool consumeComplete(){bool v=pendingComplete;pendingComplete=false;return v;}
     bool advancedMode()const{return advanced;}
 };
 
@@ -344,7 +411,17 @@ Java_com_pavan3999_bounce_MainActivity_nativeInit(JNIEnv* env,jobject,jintArray 
     jint* ap=env->GetIntArrayElements(atlas,nullptr); renderer.setAssets(ap,48,72); env->ReleaseIntArrayElements(atlas,ap,JNI_ABORT);
     jsize ln=env->GetArrayLength(levelBytes); jbyte* lp=env->GetByteArrayElements(levelBytes,nullptr);
     renderer.setLevel(reinterpret_cast<const uint8_t*>(lp),ln); env->ReleaseByteArrayElements(levelBytes,lp,JNI_ABORT);
-    LOGI("Native renderer initialized: Q[0..66], level %dx%d tile=%d",renderer.pixels().size(), renderer.pixels().size(), renderer.pixels().empty()?0:12);
+    const auto& lv=renderer.currentLevel();
+    LOGI("Native renderer initialized: level %dx%d tile=%d",lv.width,lv.height,lv.tileSize());
+}
+
+extern "C" JNIEXPORT void JNICALL
+Java_com_pavan3999_bounce_MainActivity_nativeLoadLevel(JNIEnv* env,jobject,jbyteArray levelBytes){
+    jsize ln=env->GetArrayLength(levelBytes);
+    jbyte* lp=env->GetByteArrayElements(levelBytes,nullptr);
+    renderer.setLevel(reinterpret_cast<const uint8_t*>(lp),ln);
+    env->ReleaseByteArrayElements(levelBytes,lp,JNI_ABORT);
+    player.x=64; player.y=48; player.vx=player.vy=0; player.input=0; player.onGround=false;
 }
 
 extern "C" JNIEXPORT jintArray JNICALL
@@ -352,12 +429,13 @@ Java_com_pavan3999_bounce_MainActivity_nativeFrame(JNIEnv* env,jobject){
     player.invincible = cheats.invincible;
     player.g = cheats.flyG;
     player.update(renderer.currentLevel());
+    renderer.setPlayerWorld(player.x,player.y);
     renderer.render();
     renderer.drawPlayer(player.x, player.y, 47);
     const auto& p=renderer.pixels(); jintArray out=env->NewIntArray(static_cast<jsize>(p.size())); env->SetIntArrayRegion(out,0,p.size(),reinterpret_cast<const jint*>(p.data())); return out;
 }
 
-extern "C" JNIEXPORT void JNICALL
+extern "C" JNIEXPORT jint JNICALL
 Java_com_pavan3999_bounce_MainActivity_nativeKey(JNIEnv*,jobject,jint key){
     int k=0;
     switch(key){
@@ -368,6 +446,11 @@ Java_com_pavan3999_bounce_MainActivity_nativeKey(JNIEnv*,jobject,jint key){
     if(k) cheats.key(k);
     if(key==21) player.input|=1;       // LEFT
     if(key==22) player.input|=2;       // RIGHT
+    if(key==23) player.input|=4;       // UP / action hook
+    if(key==24) player.input|=8;       // DOWN / action hook
+    if(key==-21) player.input&=~1;
+    if(key==-22) player.input&=~2;
+    return cheats.consumeLevelDelta();
 }
 
 extern "C" JNIEXPORT void JNICALL

@@ -15,13 +15,16 @@ import java.io.InputStream;
 public final class MainActivity extends Activity {
     static { System.loadLibrary("bounce"); }
     private native void nativeInit(int[] atlasPixels, byte[] levelBytes);
+    private native void nativeLoadLevel(byte[] levelBytes);
     private native int[] nativeFrame();
-    private native void nativeKey(int key);
+    private native int nativeKey(int key);
     private native void nativeTouch(float x, float y, int action);
 
     private final Paint paint = new Paint(Paint.ANTI_ALIAS_FLAG);
     private Bitmap frame;
     private GameView view;
+
+    private int currentLevel = 1;
 
     private byte[] readAsset(String name) throws Exception {
         try (InputStream in = getAssets().open(name)) {
@@ -54,9 +57,25 @@ public final class MainActivity extends Activity {
         setContentView(view);
     }
 
+    @Override public boolean onKeyUp(int keyCode, KeyEvent event) {
+        nativeKey(keyCode == KeyEvent.KEYCODE_DPAD_LEFT ? -21 :
+                  keyCode == KeyEvent.KEYCODE_DPAD_RIGHT ? -22 :
+                  keyCode);
+        return true;
+    }
+
     @Override public boolean onKeyDown(int keyCode, KeyEvent event) {
         int n=keyCodeToNokia(keyCode);
-        if(n!=0) nativeKey(n); else nativeKey(keyCode);
+        int command = nativeKey(n != 0 ? n : keyCode);
+        if (command != 0) {
+            try {
+                int next = Math.max(1, Math.min(11, currentLevel + command));
+                if (next != currentLevel) {
+                    nativeLoadLevel(readAsset(String.format(java.util.Locale.US, "levels/J2MElvl.%03d", next)));
+                    currentLevel = next;
+                }
+            } catch (Exception e) { throw new RuntimeException(e); }
+        }
         view.invalidate(); return true;
     }
     private int keyCodeToNokia(int k) {
@@ -81,7 +100,19 @@ public final class MainActivity extends Activity {
             c.drawBitmap(frame,null,new android.graphics.RectF(left,top,left+dw,top+dh),paint);
             postInvalidateDelayed(40);
         }
-        @Override public boolean onTouchEvent(MotionEvent e){ nativeTouch(e.getX(),e.getY(),e.getActionMasked()); invalidate(); return true; }
+        @Override public boolean onTouchEvent(MotionEvent e){
+            float scale=Math.min(getWidth()/128f,getHeight()/128f);
+            float left=(getWidth()-128f*scale)/2f;
+            float top=(getHeight()-128f*scale)/2f;
+            float lx=(e.getX()-left)/scale;
+            float ly=(e.getY()-top)/scale;
+            if (lx < 0 || lx >= 128 || ly < 0 || ly >= 128) {
+                if (e.getActionMasked()==MotionEvent.ACTION_UP || e.getActionMasked()==MotionEvent.ACTION_CANCEL) nativeTouch(0,0,e.getActionMasked());
+            } else {
+                nativeTouch(lx,ly,e.getActionMasked());
+            }
+            invalidate(); return true;
+        }
     }
 
     static final class BitmapFactoryCompat {
