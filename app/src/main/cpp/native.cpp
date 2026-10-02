@@ -872,27 +872,22 @@ Java_com_pavan3999_bounce_MainActivity_nativeLoadLevel(JNIEnv* env,jobject,jbyte
 
 extern "C" JNIEXPORT jintArray JNICALL
 Java_com_pavan3999_bounce_MainActivity_nativeFrame(JNIEnv* env,jobject){
-    player.invincible = cheats.invincible;
-    const int cheatG = cheats.consumeFlyG();
-    if (cheatG) player.g = cheatG;
-    player.update(renderer.currentLevel());
+    // Crash-isolation frame: bypass all native gameplay/rendering.
+    jintArray out = env->NewIntArray(128 * 128);
+    if (!out) return nullptr;
 
-    // Original f.a() case 10: locate the moving object and test the player's
-    // rectangle against its 24x24 collision rectangle; a hit calls f.e().
-    if(!player.invincible && player.state!=2 &&
-       renderer.objectHit(player.x,player.y,player.half)) {
-        player.triggerDeath();
-    }
+    std::array<jint, 128 * 128> pixels{};
+    pixels.fill(static_cast<jint>(0xFFB0E0F0u));
 
-    renderer.setPlayerWorld(player.x,player.y);
-    renderer.render();
-    int playerFrame = 47;
-    if(player.state==2 || player.size==16) playerFrame=49;
-    else if(player.vx<0 && player.anim==2) playerFrame=48;
-    renderer.drawPlayer(player.x, player.y, playerFrame);
-    const auto& p=renderer.pixels(); jintArray out=env->NewIntArray(static_cast<jsize>(p.size())); env->SetIntArrayRegion(out,0,p.size(),reinterpret_cast<const jint*>(p.data())); return out;
+    env->SetIntArrayRegion(
+        out,
+        0,
+        static_cast<jsize>(pixels.size()),
+        pixels.data()
+    );
+
+    return out;
 }
-
 extern "C" JNIEXPORT jint JNICALL
 Java_com_pavan3999_bounce_MainActivity_nativeKey(JNIEnv*,jobject,jint key){
     int k=0;
