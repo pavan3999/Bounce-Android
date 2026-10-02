@@ -1,23 +1,22 @@
-# Bounce Native Android — port scaffold
+# Bounce Native Android
 
-This project is a native Android/NDK starting point built from the uploaded `Bounce_j2me.jar` data.
+Native Android/NDK port scaffold for the uploaded Nokia Bounce J2ME build.
 
-## Current milestone
-- No J2ME runtime/emulator.
-- Original level files/assets copied into Android assets.
-- Native level header/map/object parser implemented.
-- Original 128x128 logical frame and 128x96 playfield constants recorded.
-- Exact six-key cheat state machine implemented:
-  - 787898 -> invincible
-  - 787899 -> advanced cheats
-  - advanced 1 -> previous level
-  - advanced 3 -> next level
-  - advanced 5 -> invincible
-  - advanced # -> player g=300
-  - advanced GameAction 8 -> complete level
+## Implemented in this revision
 
-## Not yet complete
-The renderer, player physics, object collision, sound decoder, and Android touch UI still need to be translated from the original bytecode. This is deliberately a native scaffold, not a claim that the game is already playable.
+- Original `objects_nm.png` atlas loaded into native C++.
+- Exact `Q[0..66]` construction translated from `com.nokia.mid.appl.boun.b.c()`.
+- Original 12x12 tile dispatch for map IDs 0..54, including variant bit `0x40`.
+- Original 16-entry terrain overlay tables from `d.class`.
+- Native 156x96 off-screen playfield and 128x128 logical frame.
+- Nearest-neighbor Android scaling for FHD/FHD+/QHD/UHD-class displays.
+- All 11 original level files packaged as Android assets.
+- Exact 12x12 and 16x12 collision masks extracted from `f.class`.
+- Native player fixed-step movement/collision foundation.
+- Nokia cheat sequences `787898` and `787899`, plus advanced `1/3/5/#` hooks.
 
-## Logical rendering target
-128x128 final frame; 128x96 gameplay area; 32px HUD. Original offscreen playfield is 156x96.
+## Not finished yet
+
+The player update is intentionally marked as a native foundation rather than a claim of complete 1:1 physics. The remaining work is to translate the complete `f.b()` state machine, tile-specific collision switch, dynamic objects, camera/HUD, sounds, and level transitions.
+
+This project does not include a J2ME runtime or emulator.
